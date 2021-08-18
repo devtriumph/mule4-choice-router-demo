@@ -1,0 +1,14 @@
+http:
+        host: "0.0.0.0"
+        port: "8081"
+        path: "/contacts"
+database:
+        host: "db host"
+        port: "db port"
+        username: "db usernme"
+        password: "db password"
+        name: "db name"
+sfdc:
+     username: "sfdc username"
+     password: "sfdc password"
+     token: "sfdc token"

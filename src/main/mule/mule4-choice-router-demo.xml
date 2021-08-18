@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:salesforce="http://www.mulesoft.org/schema/mule/salesforce"
+    xmlns:db="http://www.mulesoft.org/schema/mule/db" xmlns:http="http://www.mulesoft.org/schema/mule/http"
+    xmlns:tracking="http://www.mulesoft.org/schema/mule/ee/tracking" xmlns="http://www.mulesoft.org/schema/mule/core"
+    xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd 
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/ee/tracking http://www.mulesoft.org/schema/mule/ee/tracking/current/mule-tracking-ee.xsd
+http://www.mulesoft.org/schema/mule/salesforce http://www.mulesoft.org/schema/mule/salesforce/current/mule-salesforce.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+    <db:config name="Database_Config" doc:name="Database Config" doc:id="9f4a8d43-f1da-4c42-a5da-8c8c68d4e109">
+        <db:my-sql-connection host="${database.host}" port="${database.port}" user="${database.username}"
+            password="${database.password}" database="${database.name}"/>
+    </db:config>
+    <salesforce:sfdc-config name="Salesforce_Config" doc:name="Salesforce Config"
+        doc:id="291230eb-7ff3-4f1d-8124-a501beb929e6">
+        <salesforce:basic-connection username="${sfdc.username}" password="${sfdc.password}"
+            securityToken="${sfdc.token}"/>
+    </salesforce:sfdc-config>
+    <configuration-properties doc:name="Configuration properties" doc:id="0fbd0cc2-c9b9-4aab-b3d5-783dbffd2055"
+        file="devtriumph-dev.yaml"/>
+    <http:listener-config name="HTTP_Listener_config" doc:name="HTTP Listener config"
+        doc:id="f7882936-303f-45c8-90bd-caee54a7d983">
+        <http:listener-connection host="${http.host}" port="${http.port}"/>
+    </http:listener-config>
+    <flow name="mule4-choice-router-demo-flow" doc:id="d6722ce0-2eb6-47e8-a454-e7d8681176e8">
+        <http:listener doc:name="Listener" doc:id="5022f077-8950-445f-b1b0-8094256dd8ff" path="${http.path}" config-ref="HTTP_Listener_config">
+            <http:error-response >
+                <http:body ><![CDATA[#[payload]]]></http:body>
+            </http:error-response>
+        </http:listener>
+        <choice doc:name="Choice" doc:id="1e18088a-5f86-4727-9e10-84ddb06374f7">
+            <when expression='#[attributes.queryParams.sourceSystem == "Salesforce"]'>
+                <ee:transform doc:name="Set SFDC Request" doc:id="68cff7ac-c53b-4224-b59c-f9ccf50af238">
+                    <ee:message>
+                        <ee:set-payload><![CDATA[%dw 2.0
+output application/java
+---
+[{
+	Id: payload.id,
+	Name: payload.name,
+	Phone: payload.phone,
+	Email: payload.email
+}]]]></ee:set-payload>
+                    </ee:message>
+                </ee:transform>
+                <salesforce:create type="Create" doc:name="Create Contact" doc:id="22682c07-c36e-4aaf-a67b-2e9baec866ed" config-ref="Salesforce_Config"/>
+                <ee:transform doc:name="Set SFDC Response" doc:id="20a9d291-ec4f-4223-a171-5673fc660e76" >
+                    <ee:message >
+                        <ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{
+	"message": "New contact has been created in Salesforce"
+}
+]]></ee:set-payload>
+                    </ee:message>
+                </ee:transform>
+            </when>
+            <when expression='#[attributes.queryParams.sourceSystem == "Database"]'>
+                <db:insert doc:name="Insert into Contact Table" doc:id="55dbe349-c93d-4783-8acf-1863c8963c2e" config-ref="Database_Config">
+                    <db:sql ><![CDATA[INSERT INTO contact (Id, Name, Phone, Email) VALUES (:id, :name, :phone, :email)]]></db:sql>
+                    <db:input-parameters ><![CDATA[#[{
+	id: payload.id,
+	name: payload.name,
+	phone: payload.phone,
+	email: payload.email
+}]]]></db:input-parameters>
+                </db:insert>
+                <ee:transform doc:name="Set Database Respone" doc:id="11dc21cd-e376-4ebc-9568-7f6b2cdfae26" >
+                    <ee:message >
+                        <ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{
+	"message": "New contact has been inserted in Contact table"
+}
+]]></ee:set-payload>
+                    </ee:message>
+                </ee:transform>
+            </when>
+           
+            <otherwise>
+                <raise-error doc:name="Raise Error on Invalid Source" doc:id="17b7842f-a4a1-4142-8c13-414032f2a26b" type="DEVT:INVALID_SOURCE" description="Invalid Source System"/>
+            </otherwise>
+        </choice>
+        <error-handler >
+            <on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" doc:id="7d20a027-805b-4cf5-9429-db3fe20f1d2c" >
+                <ee:transform doc:name="Set Error Message" doc:id="69f107fe-10d6-466e-8ba4-5d4fc89bf3b4" >
+                    <ee:message >
+                        <ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{
+	"code": error.errorMessage.attributes.statusCode default 500,
+	"errorType" : error.errorType.namespace ++ ":" ++ error.errorType.identifier,
+	"message": error.description
+}]]></ee:set-payload>
+                    </ee:message>
+                </ee:transform>
+            </on-error-propagate>
+        </error-handler>
+    </flow>
+</mule>
